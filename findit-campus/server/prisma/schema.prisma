@@ -1,0 +1,124 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---- Week 1-2 scope ----
+
+model User {
+  id           Int       @id @default(autoincrement())
+  name         String
+  email        String    @unique
+  passwordHash String
+  collegeId    String?
+  trustScore   Int       @default(0)
+  isAdmin      Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  posts        Post[]
+  claims       Claim[]
+  sentMessages Message[]
+  reports      Report[]
+}
+
+model Post {
+  id           Int                     @id @default(autoincrement())
+  userId       Int
+  user         User                    @relation(fields: [userId], references: [id])
+  type         String                  // "LOST" | "FOUND"
+  category     String
+  title        String
+  description  String
+  dateEvent    DateTime
+  locationText String
+  status       String                  @default("OPEN") // OPEN | CLAIMED | RESOLVED
+  createdAt    DateTime                @default(now())
+  images       PostImage[]
+  challenge    VerificationChallenge?
+  claims       Claim[]
+}
+
+model PostImage {
+  id     Int    @id @default(autoincrement())
+  postId Int
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  url    String
+}
+
+model VerificationChallenge {
+  id           Int    @id @default(autoincrement())
+  foundPostId  Int    @unique
+  foundPost    Post   @relation(fields: [foundPostId], references: [id], onDelete: Cascade)
+  questionText String
+  secretAnswer String // only ever returned to the post's own owner
+  maxAttempts  Int    @default(3)
+}
+
+// ---- Week 4 scope: matching engine ----
+// Matches are scored live by server/src/utils/matching.js and never
+// persisted — there's no "Match" table because nothing downstream needs a
+// stored row, only the ranked list returned by GET /api/posts/:id/matches.
+
+// ---- Week 5 scope: claim + verification flow ----
+
+model Claim {
+  id                 Int            @id @default(autoincrement())
+  postId             Int
+  post               Post           @relation(fields: [postId], references: [id], onDelete: Cascade)
+  claimantId         Int
+  claimant           User           @relation(fields: [claimantId], references: [id])
+  status             String         @default("PENDING") // PENDING | CONFIRMED | REJECTED
+  claimantLastReadAt DateTime?
+  finderLastReadAt   DateTime?
+  createdAt          DateTime       @default(now())
+  attempts           ClaimAttempt[]
+  conversation       Conversation?
+
+  @@unique([postId, claimantId], name: "postId_claimantId")
+}
+
+model ClaimAttempt {
+  id         Int      @id @default(autoincrement())
+  claimId    Int
+  claim      Claim    @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  answerText String
+  createdAt  DateTime @default(now())
+}
+
+// ---- Week 6 scope: chat ----
+// Polling-based (client refetches on an interval) rather than WebSockets —
+// zero extra dependencies, same REST pattern as the rest of the API.
+
+model Conversation {
+  id        Int       @id @default(autoincrement())
+  claimId   Int       @unique
+  claim     Claim     @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+  messages  Message[]
+}
+
+model Message {
+  id             Int          @id @default(autoincrement())
+  conversationId Int
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       Int
+  sender         User         @relation(fields: [senderId], references: [id])
+  text           String
+  createdAt      DateTime     @default(now())
+}
+
+// ---- Week 7 scope: moderation ----
+
+model Report {
+  id         Int      @id @default(autoincrement())
+  reporterId Int
+  reporter   User     @relation(fields: [reporterId], references: [id])
+  targetType String   // "POST" | "USER"
+  targetId   Int
+  reason     String
+  status     String   @default("OPEN") // OPEN | RESOLVED | DISMISSED
+  createdAt  DateTime @default(now())
+}
